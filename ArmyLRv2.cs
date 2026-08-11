@@ -1,0 +1,597 @@
+/*
+name: ArmyLRv2
+description: Army-farms Legion Revenant with selectable Legion Fealty order, shared private room support, helper mode, and account-only preset names.
+tags: legion, legion rev, legion revenant, revenant, army, sync, fealty
+*/
+//cs_include Scripts/Ultrasv3/Entwined Eclipse/CoreEngine.cs
+//cs_include Scripts/Ultrasv3/Entwined Eclipse/CoreUltra.cs
+//cs_include Scripts/CoreBots.cs
+//cs_include Scripts/CoreFarms.cs
+//cs_include Scripts/CoreAdvanced.cs
+//cs_include Scripts/CoreStory.cs
+//cs_include Scripts/Army/CoreArmyLite.cs
+//cs_include Scripts/Legion/CoreLegion.cs
+using Skua.Core.Interfaces;
+using Skua.Core.Options;
+
+public class ArmyLRv2
+{
+    #region  IgnoreME
+    private static CoreAdvanced Adv
+    {
+        get => _Adv ??= new CoreAdvanced();
+        set => _Adv = value;
+    }
+    private CoreBots C => CoreBots.Instance;
+    private static CoreAdvanced _Adv;
+    public IScriptInterface Bot => IScriptInterface.Instance;
+    public CoreEngine Core = new();
+    public CoreUltra Ultra = new();
+    public CoreLegion CLR = new();
+    private static CoreBots sCore
+    {
+        get => _sCore ??= new CoreBots();
+        set => _sCore = value;
+    }
+
+    private static CoreBots _sCore;
+
+    private static CoreArmyLite sArmy
+    {
+        get => _sArmy ??= new CoreArmyLite();
+        set => _sArmy = value;
+    }
+
+    private static CoreArmyLite _sArmy;
+    private static CoreArmyLite Army
+    {
+        get => _Army ??= new CoreArmyLite();
+        set => _Army = value;
+    }
+    private static CoreArmyLite _Army;
+    #endregion
+
+    public string OptionsStorage = "ArmyLRv2";
+    public bool DontPreconfigure = true;
+
+    public enum LegionFealtyOrder
+    {
+        Default,
+        LegionFealty1,
+        LegionFealty2,
+        LegionFealty3,
+    }
+
+    public string[] LRMaterials =
+    {
+        "Exalted Crown",
+        "Revenant's Spellscroll",
+        "Conquest Wreath",
+        "Legion Revenant",
+    };
+    public string[] LF1 =
+    {
+        "Aeacus Empowered",
+        "Tethered Soul",
+        "Darkened Essence",
+        "Dracolich Contract",
+    };
+    public string[] LF2 =
+    {
+        "Grim Cohort Conquered",
+        "Ancient Cohort Conquered",
+        "Pirate Cohort Conquered",
+        "Battleon Cohort Conquered",
+        "Mirror Cohort Conquered",
+        "Darkblood Cohort Conquered",
+        "Vampire Cohort Conquered",
+        "Spirit Cohort Conquered",
+        "Dragon Cohort Conquered",
+        "Doomwood Cohort Conquered",
+    };
+    public string[] LF3 =
+    {
+        "Hooded Legion Cowl",
+        "Legion Token",
+        "Dage's Favor",
+        "Emblem of Dage",
+        "Diamond Token of Dage",
+        "Dark Token",
+    };
+
+    public List<IOption> Options = new()
+    {
+        new Option<int>("ArmySize", "Army Size", "How many players are in your army (including yourself). Set to 1 for solo.", 4),
+        new Option<int>(
+            "privateRoomNumber",
+            "Private Room Number",
+            "Private room number used by all army accounts. Set the same number on every account (1000-99999).",
+            12345
+        ),
+        new Option<bool>("UseArmySync", "Enable Army Sync", "Use army sync to coordinate legion fealty item progress.", true),
+        new Option<bool>(
+            "HelpOthersWhenDone",
+            "Help Others When Done",
+            "If this account already has the current quest items, keep attacking to help other army members finish faster.",
+            true
+        ),
+        new Option<LegionFealtyOrder>(
+            "FealtyOrder",
+            "Legion Fealty Order",
+            "Choose which Legion Fealty quest to do first. Default runs LF1 → LF2 → LF3.",
+            LegionFealtyOrder.Default
+        ),
+        new Option<string>("Account1", "Account 1", "Account name only for preset 1.", ""),
+        new Option<string>("Account2", "Account 2", "Account name only for preset 2.", ""),
+        new Option<string>("Account3", "Account 3", "Account name only for preset 3.", ""),
+        new Option<string>("Account4", "Account 4", "Account name only for preset 4.", ""),
+        sArmy.player1,
+        sArmy.player2,
+        sArmy.player3,
+        sArmy.player4,
+        sArmy.player5,
+        sArmy.player6,
+        sArmy.player7,
+        sArmy.packetDelay,
+        CoreBots.Instance.SkipOptions,
+    };
+
+    public void ScriptMain(IScriptInterface Bot)
+    {
+        C.BankingBlackList.AddRange(new[] { "add", "any", "drops", "needed" });
+        C.BankingBlackList.AddRange(LRMaterials);
+        C.BankingBlackList.AddRange(LF1);
+        C.BankingBlackList.AddRange(LF2);
+        C.BankingBlackList.AddRange(LF3);
+        C.SetOptions(disableClassSwap: true);
+
+        int armySize = Bot.Config!.Get<int>("ArmySize");
+        bool useArmySync = Bot.Config.Get<bool>("UseArmySync");
+
+        if (useArmySync && armySize > 1)
+        {
+            SetupPrivateRoom();
+            SetupArmy(armySize);
+        }
+        else if (useArmySync)
+        {
+            C.Logger("Army sync is enabled but Army Size is 1. Set Army Size to your real army count on every account.");
+        }
+
+        CLR.JoinLegion();
+        GetLR();
+
+        C.SetOptions(false);
+    }
+
+    void LF1Items(int quant = 0)
+    {
+        while (!Bot.ShouldExit)
+        {
+            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory("Revenant's Spellscroll", quant), "Revenants_Spellscroll.Sync"))
+            {
+                Bot.Wait.ForPickup("Revenant's Spellscroll");
+                Bot.Options.AggroMonsters = false;
+                C.Jump("Enter", "Spawn");
+                C.Logger("All players finished farm.");
+                break;
+            }
+
+            C.EnsureAccept(6897);
+            Bot.Quests.UpdateQuest(2060);
+            ArmyHandler(
+                map: "judgement",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "judgement_items",
+                AggroCell: "r10a",
+                checkType: CheckType.Item,
+                Itemname: "Aeacus Empowered",
+                quant: 50,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "revenant",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF1_revenant",
+                AggroCell: "r2",
+                checkType: CheckType.Item,
+                Itemname: "Tethered Soul",
+                quant: 300,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "shadowrealmpast",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF1_shadowrealmpast",
+                AggroCell: "Enter",
+                checkType: CheckType.Item,
+                Itemname: "Darkened Essence",
+                quant: 500,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "necrodungeon",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF1_necrodungeon",
+                AggroCell: "r22",
+                checkType: CheckType.Item,
+                Itemname: "Dracolich Contract",
+                quant: 1000,
+                UseBool: false
+            );
+            C.EnsureComplete(6897);
+            Bot.Wait.ForPickup("Revenant's Spellscroll");
+        }
+    }
+
+    void LF2Items(int quant = 0)
+    {
+        while (!Bot.ShouldExit)
+        {
+            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory("Conquest Wreath", quant), "Conquest_Wreath.Sync"))
+            {
+                Bot.Wait.ForPickup("Conquest Wreath");
+                Bot.Options.AggroMonsters = false;
+                C.Jump("Enter", "Spawn");
+                C.Logger("All players finished farm.");
+                break;
+            }
+            C.EnsureAccept(6898);
+            ArmyHandler(
+                map: "doomvault",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_doomvault",
+                AggroCell: "r1",
+                checkType: CheckType.Item,
+                Itemname: "Grim Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "mummies",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_mummies",
+                AggroCell: "Enter",
+                checkType: CheckType.Item,
+                Itemname: "Ancient Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "wrath",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_wrath",
+                AggroCell: "r2",
+                checkType: CheckType.Item,
+                Itemname: "Pirate Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "doomwar",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_doomwar",
+                AggroCell: "r6",
+                checkType: CheckType.Item,
+                Itemname: "Battleon Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "overworld",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_overworld",
+                AggroCell: "Enter",
+                checkType: CheckType.Item,
+                Itemname: "Mirror Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "deathpits",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_deathpits",
+                AggroCell: "r1",
+                checkType: CheckType.Item,
+                Itemname: "Darkblood Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "maxius",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_maxius",
+                AggroCell: "r4",
+                checkType: CheckType.Item,
+                Itemname: "Vampire Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "curseshore",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_curseshore",
+                AggroCell: "Enter",
+                checkType: CheckType.Item,
+                Itemname: "Spirit Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "dragonbone",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_dragonbone",
+                AggroCell: "r2",
+                checkType: CheckType.Item,
+                Itemname: "Dragon Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            ArmyHandler(
+                map: "doomwood",
+                QuestIDs: Array.Empty<int>(),
+                WaitForArmysyncPath: "LF2_doomwood",
+                AggroCell: "r3",
+                checkType: CheckType.Item,
+                Itemname: "Doomwood Cohort Conquered",
+                quant: 400,
+                UseBool: false
+            );
+
+            Bot.Wait.ForPickup("Conquest Wreath");
+            C.EnsureComplete(6898);
+        }
+    }
+
+    void LF3Items(int quant = 0)
+    {
+        C.Join("whitemap");
+        C.FarmingLogger("Exalted Crown", quant);
+        C.AddDrop(LF3);
+        while (!Bot.ShouldExit)
+        {
+            C.EnsureAccept(6899);
+            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory("Exalted Crown", quant), "Exalted_Crown.Sync"))
+            {
+                Bot.Wait.ForPickup("Exalted Crown");
+                Bot.Options.AggroMonsters = false;
+                C.Jump("Enter", "Spawn");
+                C.Logger("All players finished farm.");
+                break;
+            }
+
+            Adv.BuyItem("underworld", 216, "Hooded Legion Cowl");
+            ArmyDarkToken(100);
+            ArmyLegionTokens(4000);
+            if (Bot.Quests.CanComplete(6899))
+                Bot.Quests.Complete(6899);
+        }
+        C.CancelRegisteredQuests();
+    }
+
+    void GetLR()
+    {
+        C.AddDrop("Legion Revenant");
+        C.EnsureAccept(6900);
+
+        var order = Bot.Config!.Get<LegionFealtyOrder>("FealtyOrder");
+        switch (order)
+        {
+            case LegionFealtyOrder.LegionFealty2:
+                LF2Items(6);
+                LF1Items(20);
+                LF3Items(10);
+                break;
+            case LegionFealtyOrder.LegionFealty3:
+                LF3Items(10);
+                LF1Items(20);
+                LF2Items(6);
+                break;
+            default:
+                LF1Items(20);
+                LF2Items(6);
+                LF3Items(10);
+                break;
+        }
+
+        C.EnsureComplete(6900);
+        Bot.Wait.ForPickup("Legion Revenant");
+    }
+
+    void ArmyLegionTokens(int quant)
+    {
+        ArmyHandler(
+            map: "dreadrock",
+            QuestIDs: new int[] { 4849 },
+            WaitForArmysyncPath: "legion_tokens",
+            AggroCell: "r3",
+            checkType: CheckType.Item,
+            Itemname: "Legion Token",
+            quant: quant,
+            UseBool: false
+        );
+    }
+
+    void ArmyDarkToken(int quant)
+    {
+        ArmyHandler(
+            map: "seraphicwardage",
+            QuestIDs: new int[] { 6248, 6249, 6251 },
+            WaitForArmysyncPath: "dark_token",
+            AggroCell: "r3",
+            checkType: CheckType.Item,
+            Itemname: "Dark Token",
+            quant: quant,
+            UseBool: false
+        );
+    }
+
+    private void ArmyHandler(
+        string map,
+        int[] QuestIDs,
+        string WaitForArmysyncPath,
+        string AggroCell,
+        CheckType checkType,
+        string? Itemname = null,
+        int quant = 0,
+        bool UseBool = false,
+        Func<bool>? condition = null
+    )
+    {
+        string syncPath = Ultra.ResolveSyncPath(WaitForArmysyncPath);
+        Ultra.ClearSyncFile(WaitForArmysyncPath);
+        Bot.Sleep(2500);
+
+        C.Logger($"Players in Curreny Army: {sArmy.Players().Length}");
+
+        if (QuestIDs.Length > 0)
+            C.RegisterQuests(QuestIDs);
+
+        if (Itemname != null)
+            C.AddDrop(Itemname);
+
+        if (map == "revenant")
+        {
+            C.GhostItem(47465, "Revenant Map Bypass", 1, false, category: Skua.Core.Models.Items.ItemCategory.Class, "Used to bypass the dark caster class requirement for the map \"Revenant\"");
+            RevenantMapHandler();
+        }
+        if (map == "mummies")
+            Bot.Quests.UpdateQuest(4614);
+
+        C.Join(map);
+
+        C.Jump(AggroCell, "Left");
+
+        if (sArmy.Players().Length > 1)
+            Ultra.WaitForArmy(sArmy.Players().Length - 1, WaitForArmysyncPath);
+        Bot.Player.SetSpawnPoint();
+        Bot.Sleep(1500);
+        Bot.Options.AggroMonsters = true;
+
+        if (UseBool && condition != null)
+        {
+            while (!Bot.ShouldExit)
+            {
+                if (Ultra.CheckArmyProgressBool(condition, $"{Itemname}.Sync"))
+                {
+                    Bot.Options.AggroMonsters = false;
+                    C.Jump("Enter", "Spawn");
+                    C.Logger("All players finished farm.");
+                    break;
+                }
+                if (!Bot.Player.Alive)
+                {
+                    Bot.Wait.ForTrue(() => Bot.Player.Alive, 20);
+                    continue;
+                }
+
+                Bot.Combat.Attack("*");
+                Bot.Sleep(500);
+            }
+            return;
+        }
+
+        if (Itemname != null)
+        {
+            while (!Bot.ShouldExit)
+            {
+                bool shouldStop;
+                bool useArmySync = Bot.Config.Get<bool>("UseArmySync");
+                bool helpOthers = Bot.Config.Get<bool>("HelpOthersWhenDone");
+
+                if (useArmySync && helpOthers)
+                {
+                    shouldStop = Ultra.CheckArmyProgressBool(() => C.CheckInventory(Itemname, quant), $"{Itemname}.Sync");
+                }
+                else
+                {
+                    shouldStop = C.CheckInventory(Itemname, quant);
+                }
+
+                if (shouldStop)
+                {
+                    Bot.Options.AggroMonsters = false;
+                    C.Jump("Enter", "Spawn");
+                    C.Logger("All players finished farm.");
+                    break;
+                }
+
+                if (!Bot.Player.Alive)
+                {
+                    Bot.Wait.ForTrue(() => Bot.Player.Alive, 20);
+                    continue;
+                }
+
+                Bot.Combat.Attack("*");
+                Bot.Sleep(500);
+            }
+            return;
+        }
+    }
+
+    private void SetupPrivateRoom()
+    {
+        C.PrivateRooms = true;
+
+        int configuredRoom = Bot.Config!.Get<int>("privateRoomNumber");
+        if (configuredRoom >= 1000 && configuredRoom <= 99999)
+        {
+            C.PrivateRoomNumber = configuredRoom;
+        }
+        else
+        {
+            C.Logger($"Invalid private room number '{configuredRoom}'. Generating a fallback room number.");
+            C.PrivateRoomNumber = Army.getRoomNr();
+        }
+
+        C.Logger($"Army private room set to #{C.PrivateRoomNumber}. Use this same number on every account.");
+    }
+
+    private void SetupArmy(int armySize)
+    {
+        string readySyncFile = "ArmyLRv2.ready.sync";
+        Ultra.ClearSyncFile(Ultra.ResolveSyncPath(readySyncFile));
+        Bot.Sleep(2500);
+        C.Logger($"Waiting for army ready ({armySize - 1} other players) in room #{C.PrivateRoomNumber}...");
+        Ultra.WaitForArmy(armySize - 1, readySyncFile);
+    }
+
+    int _revenantBaseRoom = -1;
+
+    void RevenantMapHandler()
+    {
+        string[] players = Army.Players();
+        if (players == null || players.Length == 0)
+            return;
+
+        if (_revenantBaseRoom == -1)
+            _revenantBaseRoom = C.PrivateRoomNumber;
+
+        string currentPlayer = Bot.Player.Username;
+        int playerIndex = Array.IndexOf(players, currentPlayer);
+        if (playerIndex < 0)
+            return;
+
+        int roomOffset = playerIndex / 3;
+
+        C.PrivateRoomNumber = _revenantBaseRoom + roomOffset;
+    }
+
+    enum CheckType
+    {
+        Bool = 1,
+        Item = 2,
+    }
+}
