@@ -11,6 +11,7 @@ tags: The Encroaching Shadows, TheEncroachingShadows, Encroaching, Shadows, army
 //cs_include Scripts/CoreAdvanced.cs
 //cs_include Scripts/CoreStory.cs
 //cs_include Scripts/Army/CoreArmyLite.cs
+using System;
 using Skua.Core.Interfaces;
 using Skua.Core.Options;
 
@@ -55,7 +56,7 @@ public class TheEncroachingShadows
     private static CoreStory _Story;
 
     string taunter;
-    public string OptionsStorage = "voidbuquerque";
+    public string OptionsStorage = "TheEncroachingShadows";
     public bool DontPreconfigure = true;
     public List<IOption> Options = new()
     {
@@ -63,7 +64,7 @@ public class TheEncroachingShadows
             "taunter",
             "Taunter Class",
             "Insert the name of the class that will taunt",
-            "ArchPaladin"
+            "Verus DoomKnight"
         ),
         sArmy.player1,
         sArmy.player2,
@@ -107,141 +108,133 @@ public class TheEncroachingShadows
     {
         C.EnsureAcceptmultiple(8653);
 
-        Ultra.UseAlchemyPotions(Ultra.GetBestTonicPotion(), Ultra.GetBestElixirPotion());
+        
         if (IsTaunter())
         {
             Bot.Events.ExtensionPacketReceived += Ultra.GenericChargeListener;
             Ultra.GetScrollOfEnrage();
         }
+        Ultra.UseAlchemyPotions(Ultra.GetBestTonicPotion(), Ultra.GetBestElixirPotion());
         Bot.Drops.Add($"Flibbitiestgibbet's ??? Essence", "Glacial Pinion", "Hydra Eyeball", "Flibbitigiblets", "Void Essentia", "Void Energy", "Chest Plate");
         C.AddDrop(70052, 70053, 70054, 73862);
 
-        Ultra.UseAlchemyPotions(Ultra.GetBestTonicPotion(), Ultra.GetBestElixirPotion());
-        Flib();
-        Ultra.UseAlchemyPotions(Ultra.GetBestTonicPotion(), Ultra.GetBestElixirPotion());
-        IceWing();
-        Ultra.UseAlchemyPotions(Ultra.GetBestTonicPotion(), Ultra.GetBestElixirPotion());
-        Hydra90();
+        FarmBoss("voidflibbi", "Flibbitiestgibbet", 70054, 1, "VoidFlib.sync", "Flibbitigiblets");
+        FarmBoss("icewing", "Warlord Icewing", 70052, 1, "WarlordIcewing.sync", "Glacial Pinion");
+        FarmBoss("hydrachallenge", "Hydra Head 90", 70053, 3, "HydraHead90.sync", "Hydra Eyeball");
 
         C.AbandonQuest(9091);
         C.EnsureComplete(8653);
         C.Logger("All players finished farm.");
-
     }
 
-    void Flib()
+    void FarmBoss(string map, string boss, int itemId, int quantity, string waitSyncFile, string itemLabel)
     {
-        string map = "voidflibbi";
-        string Boss = "Flibbitiestgibbet";
-        string syncPath = Ultra.ResolveSyncPath("ArmyBool.sync");
+        string syncPath = Ultra.ResolveSyncPath($"EncroachingShadows_{itemId}.sync");
+
         Ultra.ClearSyncFile(syncPath);
         Bot.Sleep(2500);
-        C.Logger($"Players in Curreny Army: {sArmy.Players().Length}");
-        Core.Join(map);
-        if (sArmy.Players().Length > 1)
-            Ultra.WaitForArmy(sArmy.Players().Length - 1, "VoidFlib.sync");
-        Core.ChooseBestCell(Boss);
-        Bot.Player.SetSpawnPoint();
-        Bot.Sleep(1500);
+        C.Logger($"Players in Current Army: {sArmy.Players().Length}");
+
+        if (sArmy.Players().Length <= 1 && C.CheckInventory(itemId, quantity))
+        {
+            C.Logger($"Already have \"{itemLabel}\", skipping.");
+            return;
+        }
+
+        bool skillsEnabled = false;
+        bool combatReady = false;
+
+        while (!Bot.ShouldExit)
+        {
+            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory(itemId, quantity), syncPath))
+            {
+                C.JumpWait();
+                C.Logger($"All players finished farming \"{itemLabel}\".");
+                break;
+            }
+
+            bool isHelper = C.CheckInventory(itemId, quantity);
+
+            if (isHelper)
+                C.Logger($"Army helper on {itemLabel}: helping others finish.");
+
+            RunBossCombat(map, boss, waitSyncFile, isHelper, ref skillsEnabled, ref combatReady);
+            Bot.Sleep(isHelper ? 500 : 100);
+        }
+
+        if (skillsEnabled)
+            Core.DisableSkills();
+
+        ResetCombatOptions();
+    }
+
+    void RunBossCombat(
+        string map,
+        string boss,
+        string waitSyncFile,
+        bool isHelper,
+        ref bool skillsEnabled,
+        ref bool combatReady
+    )
+    {
+        if (!skillsEnabled)
+        {
+            Core.EnableSkills();
+            skillsEnabled = true;
+        }
+
+        JoinBossMap(map);
+
+        if (!combatReady)
+        {
+            if (sArmy.Players().Length > 1)
+                Ultra.WaitForArmy(sArmy.Players().Length - 1, waitSyncFile);
+
+            Core.ChooseBestCell(boss);
+            Bot.Player.SetSpawnPoint();
+            Bot.Sleep(1500);
+            combatReady = true;
+        }
+
         Bot.Options.AggroMonsters = true;
-        while (!Bot.ShouldExit)
+        if (isHelper)
+            Bot.Options.HidePlayers = true;
+
+        if (!Bot.Player.Alive)
         {
-            Bot.Drops.Add("Glacial Pinion", "Hydra Eyeball", "Flibbitigiblets", "Void Energy");
-            C.AddDrop(70052, 70053, 70054);
-
-
-            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory(70054), syncPath))
-            {
-                C.JumpWait();
-                C.Logger("All players finished farming \"Flibbitigiblets\".");
-                break;
-            }
-
-            // Dead → wait for respawn
-            if (!Bot.Player.Alive)
-            {
-                Bot.Wait.ForTrue(() => Bot.Player.Alive, 20);
-                continue;
-            }
-
-            if (!Bot.Player.HasTarget)
-                Bot.Combat.Attack(Boss);
-            Bot.Sleep(500);
+            Bot.Wait.ForTrue(() => Bot.Player.Alive, 20);
+            return;
         }
+
+        if (
+            Bot.Player.Cell == null
+            || Bot.Player.Cell.Equals("Enter", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            Core.ChooseBestCell(boss);
+            Bot.Player.SetSpawnPoint();
+            Bot.Sleep(500);
+            combatReady = true;
+        }
+
+        // Always attack so support classes (e.g. Lord of Order) acquire and keep a target for skills.
+        Bot.Combat.Attack(boss);
     }
 
-    void IceWing()
+    void JoinBossMap(string map)
     {
-        string map = "icewing";
-        string Boss = "Warlord Icewing";
-        string syncPath = Ultra.ResolveSyncPath("ArmyBool.sync");
-        Ultra.ClearSyncFile(syncPath);
-        Bot.Sleep(2500);
-        C.Logger($"Players in Curreny Army: {sArmy.Players().Length}");
-        Core.Join(map);
-        Core.ChooseBestCell(Boss);
-        if (sArmy.Players().Length > 1)
-            Ultra.WaitForArmy(sArmy.Players().Length - 1, "WarlordIcewing.sync");
-        Bot.Player.SetSpawnPoint();
-        Bot.Sleep(1500);
-        Bot.Options.AggroMonsters = true;
-        while (!Bot.ShouldExit)
-        {
-            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory(70052), syncPath))
-            {
-                C.JumpWait();
-                C.Logger("All players finished farming \"Glacial Pinion\".");
-                break;
-            }
-
-            // Dead → wait for respawn
-            if (!Bot.Player.Alive)
-            {
-                Bot.Wait.ForTrue(() => Bot.Player.Alive, 20);
-                continue;
-            }
-
-            if (!Bot.Player.HasTarget)
-                Bot.Combat.Attack(Boss);
-            Bot.Sleep(500);
-        }
-    }
-
-    void Hydra90()
-    {
-        const string map = "hydrachallenge";
-        const string boss = $"Hydra Head 90";
-        string syncPath = Ultra.ResolveSyncPath("UltraItemCheck.sync");
-        Ultra.ClearSyncFile(syncPath);
-        Bot.Sleep(2500);
+        if (string.Equals(Bot.Map.Name, map, StringComparison.OrdinalIgnoreCase))
+            return;
 
         Core.Join(map);
-        if (sArmy.Players().Length > 1)
-            Ultra.WaitForArmy(sArmy.Players().Length - 1, "HydraHead90.sync");
-        Core.ChooseBestCell(boss);
-        Bot.Player.SetSpawnPoint();
-        Core.EnableSkills();
-
-        while (!Bot.ShouldExit)
-        {
-            if (Ultra.CheckArmyProgressBool(() => C.CheckInventory(70053, 3), syncPath))
-            {
-                C.JumpWait();
-                C.Logger("All players finished farming \"Hydra Eyeball\".");
-                break;
-            }
-            // Dead → wait for respawn
-            if (!Bot.Player.Alive)
-            {
-                Bot.Wait.ForTrue(() => Bot.Player.Alive, 20);
-                continue;
-            }
-
-            if (!Bot.Player.HasTarget)
-                Bot.Combat.Attack(boss);
-            Bot.Sleep(500);
-        }
+        Bot.Wait.ForMapLoad(map);
     }
 
-
+    void ResetCombatOptions()
+    {
+        Bot.Options.AttackWithoutTarget = false;
+        Bot.Options.AggroAllMonsters = false;
+        Bot.Options.AggroMonsters = false;
+        Bot.Options.HidePlayers = false;
+    }
 }

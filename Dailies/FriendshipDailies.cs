@@ -35,7 +35,20 @@ public class TapsiFriendshipDailies
 
     public void doFriendShipDailies()
     {
-        FR.CompleteStory();
-        Daily.Friendships();
+        string[] giftNames = [.. Daily.frGiftNames.Select(name => name.Replace('_', ' '))];
+
+        try
+        {
+            Core.Unbank(Daily.frGiftIDs);
+            Core.Unbank(giftNames);
+
+            FR.CompleteStory();
+            Daily.Friendships();
+        }
+        finally
+        {
+            Core.ToBank(Daily.frGiftIDs);
+            Core.ToBank(giftNames);
+        }
     }
 }
