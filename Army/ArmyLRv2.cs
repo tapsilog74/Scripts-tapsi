@@ -125,13 +125,6 @@ public class ArmyLRv2
         new Option<string>("Account2", "Account 2", "Account name only for preset 2.", ""),
         new Option<string>("Account3", "Account 3", "Account name only for preset 3.", ""),
         new Option<string>("Account4", "Account 4", "Account name only for preset 4.", ""),
-        sArmy.player1,
-        sArmy.player2,
-        sArmy.player3,
-        sArmy.player4,
-        sArmy.player5,
-        sArmy.player6,
-        sArmy.player7,
         sArmy.packetDelay,
         CoreBots.Instance.SkipOptions,
     };
